@@ -4,12 +4,12 @@ import time
 import random
 
 API_URL = "https://test.wikipedia.org/w/api.php"
-HEADERS = {"User-Agent": "OrphanCleanupBot/0.2 (testwiki)"}
+HEADERS = {"User-Agent": "OrphanCleanupBot/0.3 (testwiki)"}
 
 MIN_BACKLINKS = 3
-NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))  # number of pages to process per run
+NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))  # number of random pages to process
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
-SLEEP_TIME = 2   # seconds between edits
+SLEEP_TIME = 2  # seconds between API requests
 
 
 def login_and_get_session(username, password):
@@ -33,7 +33,7 @@ def login_and_get_session(username, password):
     })
 
     if r2.json()["login"]["result"] != "Success":
-        raise Exception("Login failed")
+        raise Exception("Login failed...sorry!")
 
     print(f"Logged in as {username}")
     return session
@@ -139,40 +139,33 @@ def main():
     session = login_and_get_session(username, password)
     csrf_token = get_csrf_token(session)
 
+    # Step 1: Get all orphan-tagged pages
     orphan_pages = get_orphaned_pages(session)
     print(f"Found {len(orphan_pages)} orphan-tagged pages")
 
-    # Count backlinks and filter eligible pages
-    eligible_pages = []
-    for p in orphan_pages:
+    # Step 2: Pick 10 random pages
+    if len(orphan_pages) > NUM_PAGES:
+        pages_to_check = random.sample(orphan_pages, NUM_PAGES)
+    else:
+        pages_to_check = orphan_pages
+
+    print(f"Selected {len(pages_to_check)} random pages to check\n")
+
+    # Step 3: Check backlinks and optionally remove template
+    for p in pages_to_check:
         title = p["title"]
         backlinks = count_mainspace_backlinks(session, title)
-        if backlinks >= MIN_BACKLINKS:
-            eligible_pages.append({"title": title, "backlinks": backlinks})
         print(f"{title}: {backlinks} backlinks")
-        time.sleep(0.5)  # gentle throttling
 
-    print(f"\nEligible pages for orphan removal: {len(eligible_pages)}")
+        if backlinks >= MIN_BACKLINKS:
+            print(f"READY: {title} has enough backlinks")
 
-    # Pick random subset
-    if len(eligible_pages) > NUM_PAGES:
-        pages_to_process = random.sample(eligible_pages, NUM_PAGES)
-    else:
-        pages_to_process = eligible_pages
-
-    print(f"Processing {len(pages_to_process)} pages this run\n")
-
-    # Process selected pages
-    for p in pages_to_process:
-        title = p["title"]
-        print(f"Processing {title} ({p['backlinks']} backlinks)")
-
-        if not DRY_RUN:
-            text = get_page_text(session, title)
-            new_text = remove_orphan_template(text)
-            if new_text != text:
-                save_page(session, title, new_text, csrf_token)
-                print(" {{orphan}} removed")
+            if not DRY_RUN:
+                text = get_page_text(session, title)
+                new_text = remove_orphan_template(text)
+                if new_text != text:
+                    save_page(session, title, new_text, csrf_token)
+                    print("  → {{orphan}} removed")
 
         time.sleep(SLEEP_TIME)
 
