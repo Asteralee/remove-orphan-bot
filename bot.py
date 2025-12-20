@@ -2,12 +2,13 @@ import os
 import requests
 import time
 import random
+import re
 
 API_URL = "https://test.wikipedia.org/w/api.php"
-HEADERS = {"User-Agent": "OrphanCleanupBot/0.3 (testwiki)"}
+HEADERS = {"User-Agent": "OrphanCleanupBot/0.4 (testwiki)"}
 
 MIN_BACKLINKS = 3
-NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))  # number of random pages to process
+NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SLEEP_TIME = 2  # seconds between API requests
 
@@ -113,13 +114,15 @@ def get_page_text(session, title):
 
 
 def remove_orphan_template(text):
-    for variant in ("{{Orphan}}", "{{orphan}}"):
-        text = text.replace(variant, "")
-    return text
+    """
+    Removes all {{orphan}} templates, including variants with parameters.
+    """
+    # Matches {{orphan}} or {{orphan|...}} (case-insensitive)
+    return re.sub(r"\{\{[Oo]rphan(?:\|[^}]*)?\}\}", "", text)
 
 
 def save_page(session, title, text, token):
-    session.post(API_URL, data={
+    res = session.post(API_URL, data={
         "action": "edit",
         "title": title,
         "text": text,
@@ -128,6 +131,9 @@ def save_page(session, title, text, token):
         "minor": True,
         "format": "json"
     })
+    # Log the API response for troubleshooting
+    print(f"Edit response for {title}: {res.json()}")
+    return res
 
 
 def main():
@@ -139,11 +145,9 @@ def main():
     session = login_and_get_session(username, password)
     csrf_token = get_csrf_token(session)
 
-    # Step 1: Get all orphan-tagged pages
     orphan_pages = get_orphaned_pages(session)
     print(f"Found {len(orphan_pages)} orphan-tagged pages")
 
-    # Step 2: Pick 10 random pages
     if len(orphan_pages) > NUM_PAGES:
         pages_to_check = random.sample(orphan_pages, NUM_PAGES)
     else:
@@ -151,7 +155,6 @@ def main():
 
     print(f"Selected {len(pages_to_check)} random pages to check\n")
 
-    # Step 3: Check backlinks and optionally remove template
     for p in pages_to_check:
         title = p["title"]
         backlinks = count_mainspace_backlinks(session, title)
