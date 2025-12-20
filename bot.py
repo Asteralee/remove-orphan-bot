@@ -172,7 +172,7 @@ def main():
             new_text = remove_orphan_template(text)
             if new_text != text:
                 save_page(session, title, new_text, csrf_token)
-                print("  → {{orphan}} removed")
+                print(" {{orphan}} removed")
 
         time.sleep(SLEEP_TIME)
 
