@@ -64,8 +64,8 @@ def get_orphaned_pages(session):
     **cont
 }
         r = session.get(API_URL, params=params).json()
-        pages.extend(r["query"]["embeddedin"])
-
+        pages_batch = r.get("query", {}).get("embeddedin", [])
+        pages.extend(pages_batch)
         if "continue" not in r:
             break
         cont = r["continue"]
@@ -116,7 +116,6 @@ def remove_orphan_template(text):
     """
     Removes all {{orphan}} templates, including variants with parameters.
     """
-    # Matches {{orphan}} or {{orphan|...}} (case-insensitive)
     return re.sub(r"\{\{[Oo]rphan(?:\|[^}]*)?\}\}", "", text)
 
 
