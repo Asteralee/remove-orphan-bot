@@ -136,7 +136,7 @@ def save_page(session, title, text, token):
         "title": title,
         "text": text,
         "token": token,
-        "summary": "Bot: removing {{orphan}} — article has 3+ incoming links",
+        "summary": "Bot: removing {{orphan}} — article has 2+ incoming links",
         "minor": True,
         "format": "json"
     })
