@@ -7,7 +7,7 @@ import re
 API_URL = "https://test.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/0.4 (testwiki)"}
 
-MIN_BACKLINKS = 3
+MIN_BACKLINKS = 3 
 NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SLEEP_TIME = 2  # seconds between API requests
@@ -55,15 +55,14 @@ def get_orphaned_pages(session):
 
     while True:
         params = {
-            "action": "query",
-            "list": "embeddedin",
-            "eititle": "Template:Orphan",
-            "einamespace": 0,
-            "eilimit": "max",
-            "format": "json",
-            **cont
-        }
-
+    "action": "query",
+    "list": "categorymembers",
+    "cmtitle": "Category:All_orphaned_articles",  # replace with actual category name
+    "cmnamespace": 0,  # mainspace articles only
+    "cmlimit": "max",
+    "format": "json",
+    **cont
+}
         r = session.get(API_URL, params=params).json()
         pages.extend(r["query"]["embeddedin"])
 
