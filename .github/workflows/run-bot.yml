@@ -32,4 +32,4 @@ jobs:
           WIKI_PASS: ${{ secrets.WIKI_PASS }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          python orphan_bot.py
+          python bot.py
