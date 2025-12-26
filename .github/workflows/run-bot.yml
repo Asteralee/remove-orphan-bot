@@ -6,7 +6,7 @@ on:
       dry_run:
         description: "Run in dry-run mode (true/false)"
         required: true
-        default: "true"
+        default: "false"
 
 jobs:
   run-bot:
