@@ -12,7 +12,7 @@ NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SLEEP_TIME = 2
 
-CATEGORY_NAME = "Orphaned articles"  # change if needed
+CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
 
 
 def login_and_get_session(username, password):
@@ -71,6 +71,7 @@ def get_pages_from_category(session, category):
 
         if "continue" not in r:
             break
+
         cont = r["continue"]
 
     return pages
@@ -96,6 +97,7 @@ def count_mainspace_backlinks(session, title):
 
         if "continue" not in r:
             break
+
         cont = r["continue"]
 
     return len(backlinks)
@@ -140,6 +142,7 @@ def save_page(session, title, text, token):
 def main():
     username = os.getenv("WIKI_USER")
     password = os.getenv("WIKI_PASS")
+
     if not username or not password:
         raise RuntimeError("Missing WIKI_USER or WIKI_PASS")
 
@@ -182,120 +185,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-        r = session.get(API_URL, params=params).json()
-        pages.extend(r.get("query", {}).get("embeddedin", []))
-
-        if "continue" not in r:
-            break
-        cont = r["continue"]
-
-    return pages
-
-
-
-def count_mainspace_backlinks(session, title):
-    backlinks = set()
-    cont = {}
-
-    while True:
-        params = {
-            "action": "query",
-            "list": "backlinks",
-            "bltitle": title,
-            "blnamespace": 0,
-            "bllimit": "max",
-            "format": "json",
-            **cont
-        }
-
-        r = session.get(API_URL, params=params).json()
-        backlinks.update(bl["title"] for bl in r.get("query", {}).get("backlinks", []))
-
-        if "continue" not in r:
-            break
-        cont = r["continue"]
-
-    return len(backlinks)
-
-
-
-def get_page_text(session, title):
-    r = session.get(API_URL, params={
-        "action": "query",
-        "prop": "revisions",
-        "rvprop": "content",
-        "rvslots": "main",
-        "titles": title,
-        "format": "json"
-    })
-
-    pages = r.json()["query"]["pages"]
-    page = next(iter(pages.values()))
-    return page["revisions"][0]["slots"]["main"]["*"]
-
-
-def remove_orphan_template(text):
-    """
-    Removes {{orphan}} templates, including parameters.
-    Safe inside {{Multiple issues}}.
-    """
-    text = re.sub(r"\{\{[Oo]rphan(?:\|[^}]*)?\}\}", "", text)
-    text = re.sub(r"\n\s*\n", "\n\n", text)  # clean extra blank lines
-    return text
-
-
-def save_page(session, title, text, token):
-    r = session.post(API_URL, data={
-        "action": "edit",
-        "title": title,
-        "text": text,
-        "token": token,
-        "summary": "Bot: removing {{orphan}} — article has 2+ incoming links",
-        "minor": True,
-        "format": "json"
-    })
-
-    print(f"Edit result for {title}: {r.json()}")
-    return r
-
-
-
-def main():
-    username = os.getenv("WIKI_USER")
-    password = os.getenv("WIKI_PASS")
-    if not username or not password:
-        raise RuntimeError("Missing WIKI_USER or WIKI_PASS")
-
-    session = login_and_get_session(username, password)
-    csrf = get_csrf_token(session)
-
-    orphan_pages = get_orphaned_pages(session)
-    print(f"Found {len(orphan_pages)} orphan-tagged pages")
-
-    if not orphan_pages:
-        print("No orphaned pages found — exiting.")
-        return
-
-    pages_to_check = (
-        random.sample(orphan_pages, NUM_PAGES)
-        if len(orphan_pages) > NUM_PAGES
-        else orphan_pages
-    )
-
-    print(f"Checking {len(pages_to_check)} random pages\n")
-
-    for page in pages_to_check:
-        title = page["title"]
-        backlinks = count_mainspace_backlinks(session, title)
-
-        print(f"{title}: {backlinks} backlinks")
-
-        if backlinks >= MIN_BACKLINKS:
-            print(f" Eligible for orphan removal")
-
-            if not DRY_RUN:
-                text = get_page_text(session, title)
-                new_text = remove_orphan_template(text)
 
                 if new_text != text:
                     save_page(session, title, new_text, csrf)
