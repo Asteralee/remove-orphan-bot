@@ -4,7 +4,7 @@ import time
 import random
 import re
 
-API_URL = "https://test.wikipedia.org/w/api.php"
+API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
@@ -88,16 +88,12 @@ def count_mainspace_backlinks(session, title):
             "bltitle": title,
             "blnamespace": 0,
             "bllimit": "max",
-            "blfilterredir": "nonredirects",  # <-- ignore redirect pages
             "format": "json",
             **cont
         }
 
         r = session.get(API_URL, params=params).json()
-        backlinks.update(
-            bl["title"]
-            for bl in r.get("query", {}).get("backlinks", [])
-        )
+        backlinks.update(bl["title"] for bl in r.get("query", {}).get("backlinks", []))
 
         if "continue" not in r:
             break
