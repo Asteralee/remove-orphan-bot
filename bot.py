@@ -9,7 +9,7 @@ HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
 NUM_PAGES = int(os.getenv("NUM_PAGES", "10"))
-DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 SLEEP_TIME = 2
 
 CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
