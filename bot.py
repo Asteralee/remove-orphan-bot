@@ -88,6 +88,7 @@ def count_mainspace_backlinks(session, title):
             "bltitle": title,
             "blnamespace": 0,
             "bllimit": "max",
+            "blfilterredir": "nonredirects",
             "format": "json",
             **cont
         }
