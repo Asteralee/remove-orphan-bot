@@ -185,12 +185,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-                if new_text != text:
-                    save_page(session, title, new_text, csrf)
-
-        time.sleep(SLEEP_TIME)
-
-
-if __name__ == "__main__":
-    main()
