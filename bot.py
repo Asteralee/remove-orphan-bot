@@ -4,7 +4,7 @@ import time
 import random
 import re
 
-API_URL = "https://test.wikipedia.org/w/api.php"
+API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
