@@ -4,7 +4,7 @@ import time
 import random
 import re
 
-API_URL = "https://simple.wikipedia.org/w/api.php"
+API_URL = "https://test.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
@@ -94,7 +94,10 @@ def count_mainspace_backlinks(session, title):
         }
 
         r = session.get(API_URL, params=params).json()
-        backlinks.update(bl["title"] for bl in r.get("query", {}).get("backlinks", []))
+        backlinks.update(
+            bl["title"]
+            for bl in r.get("query", {}).get("backlinks", [])
+        )
 
         if "continue" not in r:
             break
@@ -116,13 +119,17 @@ def get_page_text(session, title):
 
     pages = r.json()["query"]["pages"]
     page = next(iter(pages.values()))
+
+    if "revisions" not in page:
+        raise RuntimeError("No revisions found")
+
     return page["revisions"][0]["slots"]["main"]["*"]
 
 
 def remove_orphan_template(text):
     text = re.sub(r"\{\{[Oo]rphan(?:\|[^}]*)?\}\}", "", text)
     text = re.sub(r"\n\s*\n", "\n\n", text)
-    return text
+    return text.strip() + "\n"
 
 
 def save_page(session, title, text, token):
@@ -157,30 +164,57 @@ def main():
         print("No pages found — exiting.")
         return
 
-    pages_to_check = (
-        random.sample(category_pages, NUM_PAGES)
-        if len(category_pages) > NUM_PAGES
-        else category_pages
-    )
+    print("\nScanning category to find eligible pages (2+ backlinks)...\n")
 
-    print(f"Checking {len(pages_to_check)} random pages\n")
+    eligible_pages = []
 
-    for page in pages_to_check:
+    for page in category_pages:
         title = page["title"]
-        backlinks = count_mainspace_backlinks(session, title)
+
+        try:
+            backlinks = count_mainspace_backlinks(session, title)
+        except Exception as e:
+            print(f"{title}: error counting backlinks ({e})")
+            continue
 
         print(f"{title}: {backlinks} backlinks")
 
         if backlinks >= MIN_BACKLINKS:
-            print(" → Eligible for orphan removal")
+            eligible_pages.append(title)
 
-            if not DRY_RUN:
-                text = get_page_text(session, title)
-                new_text = remove_orphan_template(text)
+        time.sleep(SLEEP_TIME)
 
-                if new_text != text:
-                    save_page(session, title, new_text, csrf)
+    print(
+        f"\nFound {len(eligible_pages)} eligible pages "
+        f"with ≥{MIN_BACKLINKS} backlinks"
+    )
 
+    if not eligible_pages:
+        print("No eligible pages — exiting.")
+        return
+
+    pages_to_edit = eligible_pages[:NUM_PAGES]
+
+    print(f"\nProcessing {len(pages_to_edit)} pages\n")
+
+    for title in pages_to_edit:
+        if DRY_RUN:
+            print(f"[DRY RUN] Would remove {{orphan}} from {title}")
+            continue
+
+        try:
+            text = get_page_text(session, title)
+        except Exception as e:
+            print(f"{title}: error fetching text ({e})")
+            continue
+
+        new_text = remove_orphan_template(text)
+
+        if new_text == text:
+            print(f"{title}: no orphan template found")
+            continue
+
+        save_page(session, title, new_text, csrf)
         time.sleep(SLEEP_TIME)
 
 
