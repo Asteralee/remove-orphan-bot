@@ -52,8 +52,12 @@ def get_csrf_token(session):
 
 
 def get_pages_with_2plus_backlinks(session, category, max_pages=None):
-    
-    eligible = []
+    """
+    Return pages in the given category that have 2 or more mainspace backlinks.
+    Stops early if max_pages is reached.
+    Deduplicates pages automatically.
+    """
+    eligible = set()
     cont = {}
 
     while True:
@@ -77,15 +81,15 @@ def get_pages_with_2plus_backlinks(session, category, max_pages=None):
         pages = r.get("query", {}).get("pages", {})
         for page in pages.values():
             if len(page.get("linkshere", [])) >= MIN_BACKLINKS:
-                eligible.append(page["title"])
+                eligible.add(page["title"])
                 if max_pages and len(eligible) >= max_pages:
-                    return eligible
+                    return list(eligible)
 
         if "continue" not in r:
             break
         cont = r["continue"]
 
-    return eligible
+    return list(eligible)
 
 
 def get_page_text(session, title):
