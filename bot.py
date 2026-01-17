@@ -1,8 +1,8 @@
 import os
 import requests
 import time
-import random
 import re
+import random
 
 API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
@@ -51,60 +51,41 @@ def get_csrf_token(session):
     return r.json()["query"]["tokens"]["csrftoken"]
 
 
-def get_pages_from_category(session, category):
-    pages = []
+def get_pages_with_2plus_backlinks(session, category, max_pages=None):
+    
+    eligible = []
     cont = {}
 
     while True:
         params = {
             "action": "query",
-            "list": "categorymembers",
-            "cmtitle": f"Category:{category}",
-            "cmnamespace": 0,
-            "cmlimit": "max",
+            "generator": "categorymembers",
+            "gcmtitle": f"Category:{category}",
+            "gcmnamespace": 0,
+            "gcmlimit": "50",
+
+            "prop": "linkshere",
+            "lhnamespace": 0,
+            "lhlimit": MIN_BACKLINKS,
+            "lhfilterredir": "nonredirects",
+
             "format": "json",
             **cont
         }
 
         r = session.get(API_URL, params=params).json()
-        pages.extend(r.get("query", {}).get("categorymembers", []))
+        pages = r.get("query", {}).get("pages", {})
+        for page in pages.values():
+            if len(page.get("linkshere", [])) >= MIN_BACKLINKS:
+                eligible.append(page["title"])
+                if max_pages and len(eligible) >= max_pages:
+                    return eligible
 
         if "continue" not in r:
             break
-
         cont = r["continue"]
 
-    return pages
-
-
-def count_mainspace_backlinks(session, title):
-    backlinks = set()
-    cont = {}
-
-    while True:
-        params = {
-            "action": "query",
-            "list": "backlinks",
-            "bltitle": title,
-            "blnamespace": 0,
-            "bllimit": "max",
-            "blfilterredir": "nonredirects",
-            "format": "json",
-            **cont
-        }
-
-        r = session.get(API_URL, params=params).json()
-        backlinks.update(
-            bl["title"]
-            for bl in r.get("query", {}).get("backlinks", [])
-        )
-
-        if "continue" not in r:
-            break
-
-        cont = r["continue"]
-
-    return len(backlinks)
+    return eligible
 
 
 def get_page_text(session, title):
@@ -127,7 +108,7 @@ def get_page_text(session, title):
 
 
 def remove_orphan_template(text):
-    text = re.sub(r"\{\{[Oo]rphan(?:\|[^}]*)?\}\}", "", text)
+    text = re.sub(r"\{\{\s*[Oo]rphan\b[^}]*\}\}\s*", "", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"\n\s*\n", "\n\n", text)
     return text.strip() + "\n"
 
@@ -140,10 +121,15 @@ def save_page(session, title, text, token):
         "token": token,
         "summary": "Bot: removing {{orphan}} — article has 2+ incoming links",
         "minor": True,
+        "bot": True,
         "format": "json"
     })
 
-    print(f"Edit result for {title}: {r.json()}")
+    result = r.json()
+    if "error" in result:
+        print(f"{title}: edit failed ({result['error']})")
+    else:
+        print(f"{title}: edit successful")
     return r
 
 
@@ -157,47 +143,23 @@ def main():
     session = login_and_get_session(username, password)
     csrf = get_csrf_token(session)
 
-    category_pages = get_pages_from_category(session, CATEGORY_NAME)
-    print(f"Found {len(category_pages)} pages in Category:{CATEGORY_NAME}")
-
-    if not category_pages:
-        print("No pages found — exiting.")
-        return
-
-    print("\nScanning category to find eligible pages (2+ backlinks)...\n")
-
-    eligible_pages = []
-
-    for page in category_pages:
-        title = page["title"]
-
-        try:
-            backlinks = count_mainspace_backlinks(session, title)
-        except Exception as e:
-            print(f"{title}: error counting backlinks ({e})")
-            continue
-
-        print(f"{title}: {backlinks} backlinks")
-
-        if backlinks >= MIN_BACKLINKS:
-            eligible_pages.append(title)
-
-        time.sleep(SLEEP_TIME)
-
-    print(
-        f"\nFound {len(eligible_pages)} eligible pages "
-        f"with ≥{MIN_BACKLINKS} backlinks"
+    print(f"Scanning category '{CATEGORY_NAME}' for pages with ≥{MIN_BACKLINKS} backlinks...\n")
+    eligible_pages = get_pages_with_2plus_backlinks(
+        session,
+        CATEGORY_NAME,
+        max_pages=NUM_PAGES
     )
 
     if not eligible_pages:
-        print("No eligible pages — exiting.")
+        print("No eligible pages found — exiting.")
         return
 
-    pages_to_edit = eligible_pages[:NUM_PAGES]
+    print(f"Found {len(eligible_pages)} eligible pages to process.\n")
 
-    print(f"\nProcessing {len(pages_to_edit)} pages\n")
+    # Optional randomization
+    random.shuffle(eligible_pages)
 
-    for title in pages_to_edit:
+    for title in eligible_pages:
         if DRY_RUN:
             print(f"[DRY RUN] Would remove {{orphan}} from {title}")
             continue
