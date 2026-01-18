@@ -51,11 +51,41 @@ def get_csrf_token(session):
     return r.json()["query"]["tokens"]["csrftoken"]
 
 
+def has_2plus_nonredirect_backlinks(session, title):
+    """
+    Return True if the page has at least MIN_BACKLINKS
+    non-redirect backlinks from mainspace.
+    Stops early to minimize API calls.
+    """
+    found = 0
+    cont = {}
+
+    while True:
+        r = session.get(API_URL, params={
+            "action": "query",
+            "list": "backlinks",
+            "bltitle": title,
+            "blnamespace": 0,
+            "blfilterredir": "nonredirects",
+            "bllimit": "max",
+            "format": "json",
+            **cont
+        }).json()
+
+        found += len(r.get("query", {}).get("backlinks", []))
+        if found >= MIN_BACKLINKS:
+            return True
+
+        if "continue" not in r:
+            return False
+
+        cont = r["continue"]
+
+
 def get_pages_with_2plus_backlinks(session, category, max_pages=None):
     """
-    Return pages in the given category that have 2 or more mainspace backlinks.
-    Stops early if max_pages is reached.
-    Deduplicates pages automatically.
+    Return pages in the given category that truly have
+    2 or more non-redirect mainspace backlinks.
     """
     eligible = set()
     cont = {}
@@ -68,6 +98,7 @@ def get_pages_with_2plus_backlinks(session, category, max_pages=None):
             "gcmnamespace": 0,
             "gcmlimit": "50",
 
+            # Fast candidate filter
             "prop": "linkshere",
             "lhnamespace": 0,
             "lhlimit": MIN_BACKLINKS,
@@ -79,9 +110,18 @@ def get_pages_with_2plus_backlinks(session, category, max_pages=None):
 
         r = session.get(API_URL, params=params).json()
         pages = r.get("query", {}).get("pages", {})
+
         for page in pages.values():
-            if len(page.get("linkshere", [])) >= MIN_BACKLINKS:
-                eligible.add(page["title"])
+            title = page["title"]
+
+            # Must appear to have at least MIN_BACKLINKS
+            if len(page.get("linkshere", [])) < MIN_BACKLINKS:
+                continue
+
+            # Accurate verification
+            if has_2plus_nonredirect_backlinks(session, title):
+                eligible.add(title)
+
                 if max_pages and len(eligible) >= max_pages:
                     return list(eligible)
 
@@ -112,7 +152,12 @@ def get_page_text(session, title):
 
 
 def remove_orphan_template(text):
-    text = re.sub(r"\{\{\s*[Oo]rphan\b[^}]*\}\}\s*", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(
+        r"\{\{\s*[Oo]rphan\b[^}]*\}\}\s*",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL
+    )
     text = re.sub(r"\n\s*\n", "\n\n", text)
     return text.strip() + "\n"
 
@@ -147,7 +192,11 @@ def main():
     session = login_and_get_session(username, password)
     csrf = get_csrf_token(session)
 
-    print(f"Scanning category '{CATEGORY_NAME}' for pages with ≥{MIN_BACKLINKS} backlinks...\n")
+    print(
+        f"Scanning category '{CATEGORY_NAME}' "
+        f"for pages with ≥{MIN_BACKLINKS} non-redirect backlinks...\n"
+    )
+
     eligible_pages = get_pages_with_2plus_backlinks(
         session,
         CATEGORY_NAME,
@@ -160,7 +209,6 @@ def main():
 
     print(f"Found {len(eligible_pages)} eligible pages to process.\n")
 
-    # Optional randomization
     random.shuffle(eligible_pages)
 
     for title in eligible_pages:
