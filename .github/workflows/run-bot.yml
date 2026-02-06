@@ -4,32 +4,43 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Run in dry-run mode (true/false)"
+        description: 'Set to true for dry-run, false to edit pages live'
         required: true
-        default: "false"
+        default: 'true'
+      batch_size:
+        description: 'Number of articles to process in this run'
+        required: true
+        default: '10'
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
+    env:
+      # GitHub Secrets
+      WIKI_USER: ${{ secrets.WIKI_USER }}
+      WIKI_PASS: ${{ secrets.WIKI_PASS }}
+
+      # Worklist settings
+      WORKLIST_TITLE: "User:AsteraBot/Pages to fix"
+      CATEGORY_NAME: "All orphaned articles"
+
+      # Bot options (from workflow inputs)
+      DRY_RUN: ${{ github.event.inputs.dry_run }}
+      BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+      SLEEP_BETWEEN: "2"
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
+        run: pip install requests
 
       - name: Run bot
-        env:
-          WIKI_USER: ${{ secrets.WIKI_USER }}
-          WIKI_PASS: ${{ secrets.WIKI_PASS }}
-          DRY_RUN: ${{ github.event.inputs.dry_run }}
-        run: |
-          python bot.py
+        run: python bot.py
