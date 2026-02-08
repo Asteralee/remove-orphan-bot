@@ -3,6 +3,7 @@ import requests
 import time
 import re
 import random
+from datetime import datetime
 
 API_URL = "https://test.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
@@ -20,11 +21,28 @@ WORKLIST_TITLE = os.getenv(
 
 CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
 
+BULLET_RE = re.compile(r'^\*\s*\[\[(.+?)\]\]\s*$', re.M)
+
+HEADER_RE = re.compile(
+    r"^'''Last updated:''' .*?\n\n",
+    re.MULTILINE
+)
+
+
+def update_last_updated_header(text):
+    timestamp = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
+    header = f"'''Last updated:''' {timestamp}\n\n"
+
+    if HEADER_RE.search(text):
+        return HEADER_RE.sub(header, text, count=1)
+
+    return header + text.lstrip()
+
+
 def login_and_get_session(username, password):
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    # Get login token
     r1 = session.get(API_URL, params={
         "action": "query",
         "meta": "tokens",
@@ -33,7 +51,6 @@ def login_and_get_session(username, password):
     })
     token = r1.json()["query"]["tokens"]["logintoken"]
 
-    # Login
     r2 = session.post(API_URL, data={
         "action": "login",
         "lgname": username,
@@ -48,6 +65,7 @@ def login_and_get_session(username, password):
     print(f"Logged in as {username}")
     return session
 
+
 def get_csrf_token(session):
     r = session.get(API_URL, params={
         "action": "query",
@@ -56,7 +74,6 @@ def get_csrf_token(session):
     })
     return r.json()["query"]["tokens"]["csrftoken"]
 
-BULLET_RE = re.compile(r'^\* \[\[(.+?)\]\]\s*$', re.M)
 
 def fetch_worklist(session, title):
     r = session.get(API_URL, params={
@@ -73,16 +90,19 @@ def fetch_worklist(session, title):
         return ""
     return page["revisions"][0]["slots"]["main"]["*"]
 
+
 def extract_items(text):
     return BULLET_RE.findall(text)
 
+
 def remove_item(text, title):
     return re.sub(
-        rf'^\* \[\[{re.escape(title)}\]\]\s*\n?',
+        rf'^\*\s*\[\[{re.escape(title)}\]\]\s*\n?',
         '',
         text,
         flags=re.M
     )
+
 
 def save_worklist(session, text, title, summary, token):
     r = session.post(API_URL, data={
@@ -99,6 +119,7 @@ def save_worklist(session, text, title, summary, token):
     else:
         print("Worklist updated successfully")
 
+
 def get_page_text(session, title):
     r = session.get(API_URL, params={
         "action": "query",
@@ -114,6 +135,7 @@ def get_page_text(session, title):
         raise RuntimeError(f"No revisions found for {title}")
     return page["revisions"][0]["slots"]["main"]["*"]
 
+
 def remove_orphan_template(text):
     text = re.sub(
         r"\{\{\s*[Oo]rphan\b[^}]*\}\}\s*",
@@ -123,6 +145,7 @@ def remove_orphan_template(text):
     )
     text = re.sub(r"\n\s*\n", "\n\n", text)
     return text.strip() + "\n"
+
 
 def save_page(session, title, text, token):
     r = session.post(API_URL, data={
@@ -141,6 +164,7 @@ def save_page(session, title, text, token):
     else:
         print(f"{title}: edit successful")
 
+
 def has_2plus_nonredirect_backlinks(session, title):
     found = 0
     cont = {}
@@ -155,22 +179,24 @@ def has_2plus_nonredirect_backlinks(session, title):
             "format": "json",
             **cont
         }).json()
+
         found += len(r.get("query", {}).get("backlinks", []))
         if found >= MIN_BACKLINKS:
             return True
+
         if "continue" not in r:
             return False
+
         cont = r["continue"]
 
+
 def process_article(session, csrf_token, title):
-    """Remove orphan template if present, safe for dry-run."""
     try:
         text = get_page_text(session, title)
     except Exception as e:
         print(f"{title}: error fetching text ({e})")
         return False
 
-    # Verify backlinks before editing
     if not has_2plus_nonredirect_backlinks(session, title):
         print(f"{title}: fewer than {MIN_BACKLINKS} backlinks, skipping")
         return False
@@ -188,6 +214,7 @@ def process_article(session, csrf_token, title):
     save_page(session, title, new_text, csrf_token)
     return True
 
+
 def main():
     username = os.getenv("WIKI_USER")
     password = os.getenv("WIKI_PASS")
@@ -198,7 +225,6 @@ def main():
     session = login_and_get_session(username, password)
     csrf = get_csrf_token(session)
 
-    # Fetch worklist page
     text = fetch_worklist(session, WORKLIST_TITLE)
     items = extract_items(text)
 
@@ -206,10 +232,10 @@ def main():
         print("Worklist empty — exiting.")
         return
 
-    # Pick batch
     batch_size = min(BATCH_SIZE, MAX_BATCH, len(items))
     batch = items[:batch_size]
     random.shuffle(batch)
+
     print(f"Processing batch of {len(batch)} articles")
 
     new_text = text
@@ -233,8 +259,10 @@ def main():
         return
 
     if processed:
+        new_text = update_last_updated_header(new_text)
         summary = f"Bot: processed {len(processed)} articles; {remaining} remaining"
         save_worklist(session, new_text, WORKLIST_TITLE, summary, csrf)
+
 
 if __name__ == "__main__":
     main()
