@@ -1,221 +1,267 @@
-import requests
-import re
-import time
 import os
+import requests
+import time
+import re
+import random
+from datetime import datetime
 
-TEST_API = "https://test.wikipedia.org/w/api.php"
-SIMPLE_WIKT_API = "https://simple.wiktionary.org/w/api.php"
+API_URL = "https://test.wikipedia.org/w/api.php"
+HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
-USERNAME = os.getenv("WIKI_USER")
-PASSWORD = os.getenv("WIKI_PASS")
+MIN_BACKLINKS = 2
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
+MAX_BATCH = 30  # safety cap
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+SLEEP_TIME = int(os.getenv("SLEEP_BETWEEN", "2"))
 
-CATEGORY_NAME = "Articles with broken Wiktionary links"
-LIMIT = 10
+WORKLIST_TITLE = os.getenv(
+    "WORKLIST_TITLE",
+    "User:AsteraBot/Pages to fix"
+)
 
-# REQUIRED by Wikimedia API policy
-HEADERS = {"User-Agent": "BrokenWiktBot/1.0)"}
+CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
 
-if not USERNAME or not PASSWORD:
-    raise Exception("Missing WIKI_USER or WIKI_PASS environment variables")
+BULLET_RE = re.compile(r'^\*\s*\[\[(.+?)\]\]\s*$', re.M)
 
-session = requests.Session()
-session.headers.update(HEADERS)
-
-simple_session = requests.Session()
-simple_session.headers.update(HEADERS)
-
-
-# ========================
-# Utility
-# ========================
-
-def safe_json(response):
-    if response.status_code != 200:
-        raise Exception(f"HTTP {response.status_code}: {response.text}")
-
-    try:
-        return response.json()
-    except Exception:
-        raise Exception(f"Invalid JSON response:\n{response.text}")
+HEADER_RE = re.compile(
+    r"^'''Last updated:''' .*?\n\n",
+    re.MULTILINE
+)
 
 
-# ========================
-# Login
-# ========================
+def update_last_updated_header(text):
+    timestamp = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
+    header = f"'''Last updated:''' {timestamp}\n\n"
 
-def login():
-    r1 = session.get(TEST_API, params={
+    if HEADER_RE.search(text):
+        return HEADER_RE.sub(header, text, count=1)
+
+    return header + text.lstrip()
+
+
+def login_and_get_session(username, password):
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    r1 = session.get(API_URL, params={
         "action": "query",
         "meta": "tokens",
         "type": "login",
         "format": "json"
-    }, timeout=30)
+    })
+    token = r1.json()["query"]["tokens"]["logintoken"]
 
-    data = safe_json(r1)
-    login_token = data["query"]["tokens"]["logintoken"]
-
-    r2 = session.post(TEST_API, data={
+    r2 = session.post(API_URL, data={
         "action": "login",
-        "lgname": USERNAME,
-        "lgpassword": PASSWORD,
-        "lgtoken": login_token,
+        "lgname": username,
+        "lgpassword": password,
+        "lgtoken": token,
         "format": "json"
-    }, timeout=30)
+    })
 
-    result = safe_json(r2)
+    if r2.json()["login"]["result"] != "Success":
+        raise RuntimeError("Login failed")
 
-    if result["login"]["result"] != "Success":
-        raise Exception(f"Login failed: {result}")
-
-    print("Logged in successfully.")
+    print(f"Logged in as {username}")
+    return session
 
 
-def get_csrf_token():
-    r = session.get(TEST_API, params={
+def get_csrf_token(session):
+    r = session.get(API_URL, params={
         "action": "query",
         "meta": "tokens",
         "format": "json"
-    }, timeout=30)
-
-    data = safe_json(r)
-    return data["query"]["tokens"]["csrftoken"]
+    })
+    return r.json()["query"]["tokens"]["csrftoken"]
 
 
-# ========================
-# Page Retrieval
-# ========================
-
-def get_pages_from_category():
-    r = session.get(TEST_API, params={
-        "action": "query",
-        "list": "categorymembers",
-        "cmtitle": f"Category:{CATEGORY_NAME}",
-        "cmlimit": LIMIT,
-        "format": "json"
-    }, timeout=30)
-
-    data = safe_json(r)
-    return [p["title"] for p in data["query"]["categorymembers"]]
-
-
-def get_page_text(title):
-    r = session.get(TEST_API, params={
+def fetch_worklist(session, title):
+    r = session.get(API_URL, params={
         "action": "query",
         "prop": "revisions",
-        "rvprop": "content|timestamp",
+        "rvprop": "content",
         "rvslots": "main",
         "titles": title,
         "format": "json"
-    }, timeout=30)
-
-    data = safe_json(r)
-
-    pages = data["query"]["pages"]
-    page_id = next(iter(pages))
-    page = pages[page_id]
-
+    })
+    pages = r.json()["query"]["pages"]
+    page = next(iter(pages.values()))
     if "revisions" not in page:
-        return None, None
-
-    content = page["revisions"][0]["slots"]["main"]["*"]
-    timestamp = page["revisions"][0]["timestamp"]
-
-    return content, timestamp
+        return ""
+    return page["revisions"][0]["slots"]["main"]["*"]
 
 
-def page_exists_on_simple_wikt(title):
-    r = simple_session.get(SIMPLE_WIKT_API, params={
-        "action": "query",
-        "titles": title,
-        "format": "json"
-    }, timeout=30)
-
-    data = safe_json(r)
-
-    pages = data["query"]["pages"]
-    page_id = next(iter(pages))
-
-    return page_id != "-1"
+def extract_items(text):
+    return BULLET_RE.findall(text)
 
 
-# ========================
-# Editing
-# ========================
+def remove_item(text, title):
+    return re.sub(
+        rf'^\*\s*\[\[{re.escape(title)}\]\]\s*\n?',
+        '',
+        text,
+        flags=re.M
+    )
 
-def edit_page(title, new_text, summary, base_timestamp, csrf_token):
-    r = session.post(TEST_API, data={
+
+def save_worklist(session, text, title, summary, token):
+    r = session.post(API_URL, data={
         "action": "edit",
         "title": title,
-        "text": new_text,
+        "text": text,
         "summary": summary,
-        "token": csrf_token,
-        "basetimestamp": base_timestamp,
+        "token": token,
         "bot": True,
         "format": "json"
-    }, timeout=30)
-
-    result = safe_json(r)
-    print("Edit result:", result)
-
-
-pattern = re.compile(
-    r"\{\{broken wikt link\|([^|}]+)(?:\|([^}]+))?\}\}",
-    re.IGNORECASE
-)
+    })
+    if "error" in r.json():
+        print(f"Worklist edit failed: {r.json()['error']}")
+    else:
+        print("Worklist updated successfully")
 
 
-def fix_text(text):
-    changed = False
-
-    def replacer(match):
-        nonlocal changed
-
-        term = match.group(1).strip()
-        display = match.group(2)
-
-        if page_exists_on_simple_wikt(term):
-            changed = True
-            if display:
-                return f"[[wikt:{term}|{display.strip()}]]"
-            else:
-                return f"[[wikt:{term}]]"
-        else:
-            return match.group(0)
-
-    new_text = pattern.sub(replacer, text)
-    return new_text, changed
+def get_page_text(session, title):
+    r = session.get(API_URL, params={
+        "action": "query",
+        "prop": "revisions",
+        "rvprop": "content",
+        "rvslots": "main",
+        "titles": title,
+        "format": "json"
+    })
+    pages = r.json()["query"]["pages"]
+    page = next(iter(pages.values()))
+    if "revisions" not in page:
+        raise RuntimeError(f"No revisions found for {title}")
+    return page["revisions"][0]["slots"]["main"]["*"]
 
 
-# ========================
-# MAIN
-# ========================
+def remove_orphan_template(text):
+    text = re.sub(
+        r"\{\{\s*[Oo]rphan\b[^}]*\}\}\s*",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(r"\n\s*\n", "\n\n", text)
+    return text.strip() + "\n"
+
+
+def save_page(session, title, text, token):
+    r = session.post(API_URL, data={
+        "action": "edit",
+        "title": title,
+        "text": text,
+        "token": token,
+        "summary": "Bot: removing {{orphan}} — article has 2+ incoming links",
+        "minor": True,
+        "bot": True,
+        "format": "json"
+    })
+    result = r.json()
+    if "error" in result:
+        print(f"{title}: edit failed ({result['error']})")
+    else:
+        print(f"{title}: edit successful")
+
+
+def has_2plus_nonredirect_backlinks(session, title):
+    found = 0
+    cont = {}
+    while True:
+        r = session.get(API_URL, params={
+            "action": "query",
+            "list": "backlinks",
+            "bltitle": title,
+            "blnamespace": 0,
+            "blfilterredir": "nonredirects",
+            "bllimit": "max",
+            "format": "json",
+            **cont
+        }).json()
+
+        found += len(r.get("query", {}).get("backlinks", []))
+        if found >= MIN_BACKLINKS:
+            return True
+
+        if "continue" not in r:
+            return False
+
+        cont = r["continue"]
+
+
+def process_article(session, csrf_token, title):
+    try:
+        text = get_page_text(session, title)
+    except Exception as e:
+        print(f"{title}: error fetching text ({e})")
+        return False
+
+    if not has_2plus_nonredirect_backlinks(session, title):
+        print(f"{title}: fewer than {MIN_BACKLINKS} backlinks, skipping")
+        return False
+
+    new_text = remove_orphan_template(text)
+
+    if new_text == text:
+        print(f"{title}: no orphan template found")
+        return False
+
+    if DRY_RUN:
+        print(f"[DRY RUN] Would save changes to {title}")
+        return True
+
+    save_page(session, title, new_text, csrf_token)
+    return True
+
 
 def main():
-    login()
-    csrf_token = get_csrf_token()
+    username = os.getenv("WIKI_USER")
+    password = os.getenv("WIKI_PASS")
 
-    pages = get_pages_from_category()
+    if not username or not password:
+        raise RuntimeError("Missing WIKI_USER or WIKI_PASS")
 
-    for title in pages:
-        print(f"Processing: {title}")
+    session = login_and_get_session(username, password)
+    csrf = get_csrf_token(session)
 
-        text, timestamp = get_page_text(title)
-        if not text:
-            continue
+    text = fetch_worklist(session, WORKLIST_TITLE)
+    items = extract_items(text)
 
-        new_text, changed = fix_text(text)
+    if not items:
+        print("Worklist empty — exiting.")
+        return
 
-        if changed:
-            edit_page(
-                title,
-                new_text,
-                "Fix broken Wiktionary links (checking Simple English Wiktionary)",
-                timestamp,
-                csrf_token
-            )
-            time.sleep(2)  # polite delay
-        else:
-            print("No changes needed.")
+    batch_size = min(BATCH_SIZE, MAX_BATCH, len(items))
+    batch = items[:batch_size]
+    random.shuffle(batch)
+
+    print(f"Processing batch of {len(batch)} articles")
+
+    new_text = text
+    processed = []
+
+    for title in batch:
+        ok = process_article(session, csrf, title)
+        if ok:
+            processed.append(title)
+            new_text = remove_item(new_text, title)
+        time.sleep(SLEEP_TIME)
+
+    remaining = len(items) - len(processed)
+
+    if DRY_RUN:
+        print("\n[DRY RUN] Would remove templates from:")
+        for t in processed:
+            print(f" - {t}")
+        print(f"Remaining in worklist: {remaining}")
+        print("Dry-run mode enabled, no edits made.")
+        return
+
+    if processed:
+        new_text = update_last_updated_header(new_text)
+        summary = f"Bot: processed {len(processed)} articles; {remaining} remaining"
+        save_worklist(session, new_text, WORKLIST_TITLE, summary, csrf)
 
 
 if __name__ == "__main__":
