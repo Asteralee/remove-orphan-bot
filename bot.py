@@ -16,7 +16,7 @@ SLEEP_TIME = int(os.getenv("SLEEP_BETWEEN", "2"))
 
 WORKLIST_TITLE = os.getenv(
     "WORKLIST_TITLE",
-    "User:AsteraBot/Pages to fix"
+    "User:AsteraBot/Pages to fix2"
 )
 
 CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
