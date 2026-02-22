@@ -6,11 +6,11 @@ on:
       dry_run:
         description: 'Set to true for dry-run, false to edit pages live'
         required: true
-        default: 'true'
+        default: 'false'
       batch_size:
         description: 'Number of articles to process in this run'
         required: true
-        default: '10'
+        default: '15'
 
 jobs:
   run-bot:
