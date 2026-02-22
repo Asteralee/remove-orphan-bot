@@ -22,7 +22,7 @@ jobs:
       WIKI_PASS: ${{ secrets.WIKI_PASS }}
 
       # Worklist settings
-      WORKLIST_TITLE: "User:AsteraBot/Pages to fix"
+      WORKLIST_TITLE: "User:AsteraBot/Pages to fix2"
       CATEGORY_NAME: "All orphaned articles"
 
       # Bot options (from workflow inputs)
