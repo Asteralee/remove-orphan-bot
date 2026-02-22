@@ -5,7 +5,7 @@ import re
 import random
 from datetime import datetime
 
-API_URL = "https://test.wikipedia.org/w/api.php"
+API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
@@ -16,7 +16,7 @@ SLEEP_TIME = int(os.getenv("SLEEP_BETWEEN", "2"))
 
 WORKLIST_TITLE = os.getenv(
     "WORKLIST_TITLE",
-    "User:AsteraBot/Pages to fix2"
+    "User:AsteraBot/Pages to fix"
 )
 
 CATEGORY_NAME = os.getenv("CATEGORY_NAME", "All orphaned articles")
