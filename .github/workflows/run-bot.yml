@@ -11,6 +11,8 @@ on:
         description: 'Number of articles to process in this run'
         required: true
         default: '15'
+  schedule:
+    - cron: '0 12 24 * *'  # 12:00 UTC on the 24th of every month
 
 jobs:
   run-bot:
