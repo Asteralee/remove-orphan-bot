@@ -12,8 +12,7 @@ on:
         required: true
         default: '15'
   schedule:
-    - cron: '0 16 24 * *'  # 12:00 UTC on the 24th of every month
-
+    - cron: '15 20 * * *' 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
