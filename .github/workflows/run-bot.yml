@@ -10,7 +10,7 @@ on:
       batch_size:
         description: 'Number of articles to process in this run'
         required: true
-        default: '15'
+        default: '10'
   schedule:
     - cron: '10 21 * * *' 
 jobs:
