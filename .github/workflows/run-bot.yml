@@ -12,7 +12,7 @@ on:
         required: true
         default: '10'
   schedule:
-    - cron: '0 23 * * *' 
+    - cron: '*/5 * * * *' 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -27,8 +27,8 @@ jobs:
       CATEGORY_NAME: "All orphaned articles"
 
       # Bot options (from workflow inputs)
-      DRY_RUN: ${{ github.event.inputs.dry_run }}
-      BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      BATCH_SIZE: ${{ github.event.inputs.batch_size|| '10'}}
       SLEEP_BETWEEN: "2"
 
     steps:
