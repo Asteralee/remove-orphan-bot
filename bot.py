@@ -9,7 +9,7 @@ API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "OrphanCleanupBot/1.0"}
 
 MIN_BACKLINKS = 2
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE") or "10")
 MAX_BATCH = 30  # safety cap
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 SLEEP_TIME = int(os.getenv("SLEEP_BETWEEN", "2"))
