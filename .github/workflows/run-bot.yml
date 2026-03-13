@@ -11,8 +11,6 @@ on:
         description: 'Number of articles to process in this run'
         required: true
         default: '10'
-  schedule:
-    - cron: '0 20 * * *' 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
